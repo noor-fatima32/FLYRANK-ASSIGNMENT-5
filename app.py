@@ -1,7 +1,8 @@
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from supabase import create_client, Client
 
@@ -26,10 +27,44 @@ app = FastAPI(
     version="1.0.0"
 )
 
+security = HTTPBearer()
+
 
 class AuthRequest(BaseModel):
     email: str
     password: str
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    token = credentials.credentials
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing access token"
+        )
+
+    try:
+        response = supabase.auth.get_user(token)
+
+        if response.user is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired token"
+            )
+
+        return response.user
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
 
 
 @app.get("/health")
@@ -62,6 +97,7 @@ def signup(data: AuthRequest):
 
     except HTTPException:
         raise
+
     except Exception as e:
         raise HTTPException(
             status_code=400,
@@ -90,11 +126,45 @@ def login(data: AuthRequest):
             "user_id": response.user.id,
             "email": response.user.email
         }
-        
+
     except HTTPException:
         raise
+
     except Exception:
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password"
         )
+
+
+@app.get("/public")
+def public():
+    return {
+        "message": "This is a public endpoint"
+    }
+
+
+@app.get("/protected")
+def protected(current_user=Depends(get_current_user)):
+    return {
+        "message": "You have access to the protected endpoint",
+        "user_id": current_user.id,
+        "email": current_user.email
+    }
+
+
+@app.get("/dashboard")
+def dashboard(current_user=Depends(get_current_user)):
+    return {
+        "message": "Welcome to your dashboard",
+        "user_id": current_user.id,
+        "email": current_user.email
+    }
+
+
+@app.post("/auth/logout")
+def logout(current_user=Depends(get_current_user)):
+    return {
+        "message": "Logout successful",
+        "user_id": current_user.id
+    }
